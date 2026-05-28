@@ -1,7 +1,7 @@
 {
   "outputDirectory": "web",
   "functions": {
-    "api/index.py": {
+    "web/api/index.py": {
       "maxDuration": 30
     }
   },
