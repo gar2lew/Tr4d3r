@@ -1,7 +1,7 @@
 {
-  "outputDirectory": "web",
+  "buildCommand": "cp -r web/* .",
   "functions": {
-    "web/api/index.py": {
+    "api/index.py": {
       "maxDuration": 30
     }
   },
