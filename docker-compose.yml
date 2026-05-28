@@ -1,0 +1,15 @@
+services:
+  brain:
+    build: .
+    image: ai-hummingbot-brain:latest
+    container_name: ai-hummingbot-brain
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      HTTP_PORT: 8787
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/data

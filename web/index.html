@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Hummingbot Brain — Paper Command Center</title>
+    <meta name="description" content="Paper-only AI crypto trading command center. Live execution is locked." />
+    <link rel="preconnect" href="https://api.fontshare.com" />
+    <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=jetbrains-mono@400,500&display=swap" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div id="root">
+      <header class="topbar">
+        <div class="brand">
+          <svg viewBox="0 0 32 32" aria-label="AI Hummingbot Brain" class="logo" fill="none">
+            <path d="M4 18 L11 11 L16 16 L21 8 L28 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="28" cy="18" r="2.4" fill="currentColor"/>
+            <path d="M4 24 L28 24" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 3" opacity="0.5"/>
+          </svg>
+          <div>
+            <div class="brand-name">AI Hummingbot Brain</div>
+            <div class="brand-sub">paper command center</div>
+          </div>
+        </div>
+        <div class="status-cluster">
+          <span class="pill pill-warn" id="paperPill">PAPER MODE — LIVE LOCKED</span>
+          <!-- V9.1 — permanent build-truth badge. Spot-only build: shorts, perps,
+               margin, borrow, and transfers are DISABLED. Native exchange-attached
+               TP/SL is available behind LIVE_NATIVE_PROTECTION_ENABLED (V9).
+               The badge is fixed and not driven by settings. -->
+          <span class="pill pill-warn" id="spotOnlyPill" title="V9.1 spot-only build: OKX SPOT LONG only. Shorts, perps, margin, borrow are disabled. Native TP/SL behind flag.">V9.1 live mode: OKX SPOT LONG only</span>
+          <span class="pill" id="aiPill">AI: …</span>
+          <span class="pill" id="dataPill">Data: …</span>
+          <span class="pill pill-mono" id="clockPill">--:--:--</span>
+        </div>
+      </header>
+
+      <!-- V7 — pro trading-console status strip (sticky under topbar) -->
+      <div class="v7-statusbar" id="v7Statusbar" data-testid="strip-v7-status">
+        <div class="v7-strip-item">
+          <span class="v7-strip-label">Scanner</span>
+          <span class="v7-strip-value" id="scanScannedCount">0 / 0</span>
+          <span class="muted small" id="scanWarming">warming…</span>
+        </div>
+        <div class="v7-strip-item">
+          <span class="v7-strip-label">Clean</span>
+          <span class="v7-strip-value v7-good" id="scanCleanCount">0</span>
+        </div>
+        <div class="v7-strip-item">
+          <span class="v7-strip-label">Skipped</span>
+          <span class="v7-strip-value v7-warn" id="scanSkippedCount">0</span>
+        </div>
+        <div class="v7-strip-item">
+          <span class="v7-strip-label">Last scan</span>
+          <span class="v7-strip-value" id="scanLastAge">never</span>
+          <span class="muted small" id="scanDuration">—</span>
+        </div>
+        <div class="v7-strip-item">
+          <span class="v7-strip-label">Queue</span>
+          <span class="v7-strip-value" id="scanQueueText">idle</span>
+        </div>
+        <!-- V8 — next scan ETA + universe size so operators can predict when
+             the next scan fires and how many symbols are in the universe. -->
+        <div class="v7-strip-item">
+          <span class="v7-strip-label">Next scan</span>
+          <span class="v7-strip-value" id="scanNextEta">—</span>
+        </div>
+        <div class="v7-strip-item">
+          <span class="v7-strip-label">Universe</span>
+          <span class="v7-strip-value" id="scanUniverseSize">—</span>
+        </div>
+        <div class="v7-strip-item v7-strip-grow">
+          <span class="v7-strip-label">Direction</span>
+          <span class="side-badge side-long" title="This build trades spot LONG only.">LONG (spot buy only)</span>
+          <span class="muted small">SHORT / perps / leverage unavailable</span>
+        </div>
+      </div>
+
+      <div class="banner" id="banner">
+        <strong>Paper mode now.</strong> OKX demo and live are <em>locked</em> until the
+        training gate passes: enough closed paper trades, a positive win rate, positive
+        P/L, and clean data quality. Real-money execution additionally needs explicit env
+        acknowledgements and a tiny <code>LIVE_MAX_ORDER_USDT</code> cap. Leverage is a
+        <strong>paper/demo simulator only</strong> in this build — real leverage/perps
+        are not wired. No profit is guaranteed.
+      </div>
+
+      <main class="grid">
+        <!-- LEFT: control deck + portfolio -->
+        <section class="card" id="controlDeck">
+          <h2>Control deck</h2>
+          <div class="actions">
+            <button id="startBtn" class="btn btn-primary" data-testid="button-start">Start paper bot</button>
+            <button id="stopBtn" class="btn" data-testid="button-stop">Stop</button>
+            <button id="findBtn" class="btn btn-accent" data-testid="button-find">Find best trade now</button>
+            <button id="resetBtn" class="btn btn-danger" data-testid="button-reset">Reset paper account</button>
+            <button id="settingsBtn" class="btn btn-ghost" data-testid="button-settings">Settings</button>
+          </div>
+          <div class="taskline">
+            <span class="dot" id="taskDot"></span>
+            <span class="task-label">Current task:</span>
+            <span id="currentTask" data-testid="text-task">idle</span>
+          </div>
+          <!-- V6.4 — standing reminder that the bot's allowed direction is LONG only. -->
+          <div class="direction-note" data-testid="note-direction-control-deck">
+            <strong>Allowed direction: LONG only</strong> (OKX spot buy). This build does not short, borrow, use margin, perps, leverage, or withdrawals. Bearish signals are <em>avoided/watched</em>, never sold short.
+          </div>
+          <div class="strategy-panel">
+            <div class="strategy-head">
+              <div>
+                <div class="mini-label">Strategy arsenal</div>
+                <strong id="activeStrategyName">Commander Blend</strong>
+              </div>
+              <select id="strategySelect" class="strategy-select" data-testid="select-strategy">
+                <option value="commander_blend">Commander Blend</option>
+                <option value="trend_rider">Trend Rider</option>
+                <option value="pullback_sniper">Pullback Sniper</option>
+                <option value="breakout_hunter">Breakout Hunter</option>
+                <option value="mean_reversion">Mean Reversion</option>
+                <option value="volume_surge">Volume Surge</option>
+                <option value="safe_observer">Safe Observer</option>
+              </select>
+            </div>
+            <div class="v51-bar" id="v51Bar">
+              <button type="button"
+                      class="v51-chip v51-chip-toggle"
+                      id="autoStrategyChip"
+                      data-testid="chip-auto-strategy"
+                      aria-pressed="false"
+                      title="Click to toggle Auto Strategy Selection. When ON, Hermes auto-picks the best strategy per scan. When OFF, the manually selected Active strategy is used.">
+                <span class="v51-chip-label">Auto Strategy <span class="v51-chip-hint">click to toggle</span></span>
+                <span class="v51-chip-value" id="autoStrategyState">—</span>
+              </button>
+              <div class="v51-chip" id="universeChip" data-testid="chip-universe">
+                <span class="v51-chip-label">Scan universe</span>
+                <span class="v51-chip-value" id="universeCount">—</span>
+              </div>
+              <div class="v51-chip" id="entryKindChip" data-testid="chip-entry-kind">
+                <span class="v51-chip-label">Last entry</span>
+                <span class="v51-chip-value" id="entryKindLabel">none yet</span>
+              </div>
+            </div>
+            <div class="v51-line" id="autoStrategyReasonLine">Auto-strategy reason: <span id="autoStrategyReason">waiting for first scan…</span></div>
+            <div class="v51-line" id="bestCandidateLine">Best watched: <span id="bestCandidate">—</span></div>
+            <div class="v51-line v51-line-dim" id="universeLine">Discovered: <span id="universeDiscovered">—</span></div>
+            <div class="v51-line v51-line-dim" id="universeCleanLine">Clean: <span id="universeClean">—</span> · Skipped: <span id="universeSkipped">0</span> <span id="universeSkippedDetail" class="v51-skipped-detail"></span></div>
+            <div id="strategyArsenal" class="strategy-grid"></div>
+          </div>
+        </section>
+
+        <section class="card" id="portfolioCard">
+          <h2>Paper portfolio</h2>
+          <div id="paperProfileBanner" class="profile-banner profile-banner-readiness" data-testid="banner-paper-profile">
+            Paper profile: <strong id="paperProfileLabel">live_readiness</strong> — conservative defaults; eligible only.
+          </div>
+          <div id="cashWarning" class="cash-warning hidden" data-testid="banner-cash-warning">
+            ⚠️ Cash reserve breached — paper engine is refusing new entries until cash returns above the configured reserve.
+          </div>
+          <div id="unverifiedExitBanner" class="cash-warning hidden" data-testid="banner-unverified">
+            ⚠️ Unverified exit detected — a paper trade closed at a price the live market did not reach. These trades do not count toward live readiness.
+          </div>
+          <div class="kpis">
+            <div class="kpi"><div class="kpi-label">Equity</div><div class="kpi-value" id="equity" data-testid="text-equity">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Cash</div><div class="kpi-value" id="cash" data-testid="text-cash">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Realized P/L</div><div class="kpi-value" id="realized" data-testid="text-realized">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Unrealized</div><div class="kpi-value" id="unreal" data-testid="text-unrealized">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Fees</div><div class="kpi-value" id="fees">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Trades today</div><div class="kpi-value" id="tradesToday">0</div></div>
+            <div class="kpi"><div class="kpi-label">Eligible closed</div><div class="kpi-value" id="eligibleClosed" data-testid="text-eligible-closed">0 / 0</div></div>
+          </div>
+          <div id="openPositions" class="positions">
+            <div class="empty">No open positions.</div>
+          </div>
+        </section>
+
+        <!-- MIDDLE: AI committee + market table -->
+        <section class="card" id="aiCard">
+          <h2>AI brain committee</h2>
+          <div class="agents" id="agents">
+            <div class="agent" data-agent="Commander">
+              <div class="agent-head"><span class="role">Commander</span><span class="model" id="model-Commander">—</span></div>
+              <div class="agent-vote" id="vote-Commander">awaiting…</div>
+              <div class="agent-reason" id="reason-Commander">No verdict yet.</div>
+            </div>
+            <div class="agent" data-agent="Scout">
+              <div class="agent-head"><span class="role">Scout</span><span class="model" id="model-Scout">—</span></div>
+              <div class="agent-vote" id="vote-Scout">awaiting…</div>
+              <div class="agent-reason" id="reason-Scout">No verdict yet.</div>
+            </div>
+            <div class="agent" data-agent="Risk">
+              <div class="agent-head"><span class="role">Risk</span><span class="model" id="model-Risk">—</span></div>
+              <div class="agent-vote" id="vote-Risk">awaiting…</div>
+              <div class="agent-reason" id="reason-Risk">No verdict yet.</div>
+            </div>
+            <div class="agent" data-agent="Skeptic">
+              <div class="agent-head"><span class="role">Skeptic</span><span class="model" id="model-Skeptic">—</span></div>
+              <div class="agent-vote" id="vote-Skeptic">awaiting…</div>
+              <div class="agent-reason" id="reason-Skeptic">No verdict yet.</div>
+            </div>
+          </div>
+          <div class="consensus">
+            <div>Symbol: <strong id="consensusSym">—</strong></div>
+            <div>Consensus: <strong id="consensusVote">—</strong></div>
+            <div>Confidence: <strong id="consensusConf">—</strong></div>
+          </div>
+          <!-- V6.4 — the committee votes on a candidate setup (open?), not on an existing position. -->
+          <div class="consensus-note" id="consensusCandidateLine" data-testid="text-candidate-direction">
+            Candidate direction: LONG (spot buy). The committee is voting on whether to OPEN this setup — it is not a verdict on any already-open position. Open positions are shown in <em>Paper portfolio</em> with their own Direction label.
+          </div>
+        </section>
+
+        <section class="card" id="marketCard">
+          <h2>Market scan</h2>
+          <table class="market-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Last</th>
+                <th>24h</th>
+                <th>Bias</th>
+                <th>Direction</th>
+                <th>RSI</th>
+                <th>Vol×</th>
+                <th>Local conf</th>
+              </tr>
+            </thead>
+            <tbody id="marketBody">
+              <tr><td colspan="8" class="empty">Loading market data…</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="card" id="opportunityCard">
+          <h2>Opportunity radar</h2>
+          <div class="radar-note">1h bias + 15m setup watchlist. Fast ticker watcher manages open stops every second.</div>
+          <!-- V6.4 — explicit long-only scan banner so bearish/avoid rows are not mistaken for short candidates. -->
+          <div class="radar-note radar-note-direction" data-testid="note-radar-direction">
+            <strong>Long-spot scan only.</strong> This build scans for LONG (spot buy) setups; bearish signals are avoided/watched, not shorted. Shorts require a separate margin/perps adapter and are not enabled in this build.
+          </div>
+          <div id="opportunities" class="opportunities">
+            <div class="empty">Waiting for first full scan…</div>
+          </div>
+        </section>
+
+        <section class="card card-wide" id="gateCard">
+          <div class="card-title-row">
+            <h2>Demo / Live gate</h2>
+            <span class="gate-badge" id="gateBadge">paper</span>
+          </div>
+          <div class="gate-summary" id="gateSummary">Paper mode — OKX execution is locked until training passes.</div>
+          <div class="gate-grid">
+            <div class="gate-kpi"><span>Eligible closed trades</span><strong id="gateClosed">0</strong><em id="gateClosedReq">need —</em></div>
+            <div class="gate-kpi"><span>Win rate</span><strong id="gateWinRate">—</strong><em id="gateWinReq">need —</em></div>
+            <div class="gate-kpi"><span>Net P/L</span><strong id="gatePnl">—</strong><em id="gatePnlReq">need —</em></div>
+            <div class="gate-kpi"><span>Data quality</span><strong id="gateDQ">—</strong><em id="gateDQReq">need —</em></div>
+            <div class="gate-kpi"><span>OKX private</span><strong id="gateOkx">not configured</strong><em id="gateOkxMode">—</em></div>
+            <div class="gate-kpi"><span>Live max order</span><strong id="gateMaxOrder">—</strong><em>spot only · no perps · no withdrawals</em></div>
+          </div>
+          <div class="gate-leverage" id="gateLeverage">
+            <strong>Leverage simulator:</strong> <span id="gateLeverageState">off</span>.
+            Paper/demo training only — real OKX leverage/perps are not enabled in this build.
+          </div>
+          <h3 class="gate-block-heading">Why it is locked</h3>
+          <ul class="gate-reasons" id="gateReasons"><li>Loading…</li></ul>
+          <div class="gate-actions">
+            <button id="refreshReadiness" class="btn btn-ghost" data-testid="button-refresh-readiness">Recheck OKX readiness</button>
+          </div>
+        </section>
+
+        <section class="card card-wide" id="okxAccountCard" data-testid="card-okx-account">
+          <div class="card-title-row">
+            <h2>OKX real account</h2>
+            <div class="gate-actions">
+              <button id="testOkxAuthBtn" class="btn btn-ghost" data-testid="button-test-okx-auth">Test OKX private auth</button>
+              <button id="refreshAccountBtn" class="btn btn-ghost" data-testid="button-refresh-account">Refresh balance</button>
+            </div>
+          </div>
+          <div class="banner" id="okxAccountNotice">
+            <strong>Read-only.</strong> This panel shows balances from OKX so you can verify keys and funds. Paper P/L above is separate from this real account.
+          </div>
+          <div class="kpis">
+            <div class="kpi"><div class="kpi-label">Configured</div><div class="kpi-value" id="okxConfigured" data-testid="text-okx-configured">no</div></div>
+            <div class="kpi"><div class="kpi-label">Authenticated</div><div class="kpi-value" id="okxAuthed" data-testid="text-okx-authed">no</div></div>
+            <div class="kpi"><div class="kpi-label">Mode</div><div class="kpi-value" id="okxMode" data-testid="text-okx-mode">paper</div></div>
+            <div class="kpi"><div class="kpi-label">USDT total</div><div class="kpi-value" id="okxUsdtTotal" data-testid="text-okx-usdt-total">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">USDT free</div><div class="kpi-value" id="okxUsdtFree" data-testid="text-okx-usdt-free">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">USDT frozen</div><div class="kpi-value" id="okxUsdtFrozen">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Total equity (USD)</div><div class="kpi-value" id="okxTotalEq">$0.00</div></div>
+          </div>
+          <div id="okxAssetList" class="positions" data-testid="list-okx-assets">
+            <div class="empty">No balances loaded yet.</div>
+          </div>
+          <div class="v51-line v51-line-dim" id="okxAccountError"></div>
+          <div class="v51-line v51-line-dim">Permissions: <span id="okxAccountPerms">—</span></div>
+          <div class="v51-line v51-line-dim">Base URL (private): <span id="okxAccountBaseUrl">—</span></div>
+          <div class="v51-line v51-line-dim">Last error: <span id="okxAccountLastError">—</span></div>
+
+          <div id="okxDiagBlock" class="hidden" data-testid="block-okx-diagnostic" style="margin-top:14px;">
+            <div class="card-title-row"><h3 style="margin:0;">OKX auth diagnostic</h3><span id="okxDiagBadge" class="chip chip-warn">unknown</span></div>
+            <div class="kpis">
+              <div class="kpi"><div class="kpi-label">HTTP status</div><div class="kpi-value" id="okxDiagHttp">—</div></div>
+              <div class="kpi"><div class="kpi-label">OKX code</div><div class="kpi-value" id="okxDiagCode">—</div></div>
+              <div class="kpi"><div class="kpi-label">Demo header sent</div><div class="kpi-value" id="okxDiagDemoHdr">—</div></div>
+              <div class="kpi"><div class="kpi-label">Clock skew</div><div class="kpi-value" id="okxDiagSkew">—</div></div>
+            </div>
+            <div class="v51-line v51-line-dim">OKX message: <span id="okxDiagMsg">—</span></div>
+            <div class="v51-line v51-line-dim">Base URL (private): <span id="okxDiagBaseUrl">—</span> <span id="okxDiagBaseUrlSrc" class="muted"></span></div>
+            <div class="v51-line v51-line-dim">Request path: <span id="okxDiagPath">—</span></div>
+            <div class="v51-line v51-line-dim">Timestamp used: <span id="okxDiagTs">—</span></div>
+            <div class="v51-line v51-line-dim">Local UTC: <span id="okxDiagLocal">—</span></div>
+            <div class="v51-line v51-line-dim">Key fingerprint: <span id="okxDiagFp">—</span></div>
+            <div class="v51-line v51-line-dim" style="margin-top:8px;"><strong>Likely causes</strong></div>
+            <ul id="okxDiagCauses" class="reasons-list"><li>—</li></ul>
+            <div class="v51-line v51-line-dim"><strong>Next steps</strong></div>
+            <ul id="okxDiagSteps" class="reasons-list"><li>—</li></ul>
+          </div>
+        </section>
+
+        <section class="card card-wide" id="liveTesterCard" data-testid="card-live-tester">
+          <div class="card-title-row">
+            <h2>Tiny OKX Live Tester (V9.1)</h2>
+            <span id="liveTesterBadge" class="chip chip-warn" data-testid="badge-live-tester">disabled</span>
+          </div>
+          <div class="banner" id="liveTesterWarn">
+            <strong>Real money.</strong> This panel uses your OKX account. Spot only. No leverage, no withdrawals. Stops are <em>bot-managed</em> — if this app stops, stops will NOT trigger.
+          </div>
+          <!-- V6.4 — explicit allowed-direction line for the live tester. -->
+          <div class="banner banner-direction" data-testid="banner-lt-direction">
+            <strong>Allowed direction: LONG only (OKX spot buy).</strong> Shorts require a separate margin/perps adapter and are <em>not enabled</em> in this build. The tester will never sell what you do not already hold.
+          </div>
+          <div class="kpis">
+            <div class="kpi"><div class="kpi-label">Status</div><div class="kpi-value" id="ltStatus" data-testid="text-lt-status">disabled</div></div>
+            <div class="kpi"><div class="kpi-label">Max order</div><div class="kpi-value" id="ltMaxOrder" data-testid="text-lt-max-order">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Daily loss cap</div><div class="kpi-value" id="ltDailyCap" data-testid="text-lt-daily-cap">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Trades today</div><div class="kpi-value" id="ltTradesToday">0 / 0</div></div>
+            <div class="kpi"><div class="kpi-label">Realized today</div><div class="kpi-value" id="ltRealizedToday">$0.00</div></div>
+            <div class="kpi"><div class="kpi-label">Open live positions</div><div class="kpi-value" id="ltOpenCount" data-testid="text-lt-open-count">0</div></div>
+            <div class="kpi"><div class="kpi-label">Stop mode</div><div class="kpi-value" id="ltStopMode" data-testid="text-lt-stop-mode">bot_managed</div></div>
+          </div>
+          <div id="ltKillSwitchLine" class="cash-warning hidden" data-testid="banner-lt-kill">Kill switch ENGAGED — reason: <span id="ltKillReason">—</span></div>
+          <div id="ltOverrideLine" class="cash-warning hidden">LIVE_TESTER_OVERRIDE is active — the tester bypassed the V5.4 eligibility journal. Use only for tiny first-trade sanity checks.</div>
+          <!-- V8 — caps too large warning (populated by app.js when caps exceed tiny-test envelope) -->
+          <div id="ltCapsWarning" class="cash-warning hidden" data-testid="banner-lt-caps"></div>
+          <!-- V9 — native exchange-attached protection banner. The label
+               and copy are populated dynamically from the live tester
+               summary so toggling LIVE_NATIVE_PROTECTION_ENABLED in env
+               immediately reflects in the UI without a code change. -->
+          <div id="ltNativeProtBanner" class="banner" data-testid="banner-native-protection" style="border-left:3px solid var(--warn);background:rgba(245,158,11,0.06);">
+            <strong>Native exchange-attached TP/SL: <span id="ltNativeProtState">checking…</span></strong>
+            <span id="ltNativeProtMode" class="muted small"></span>
+            <div id="ltNativeProtCopy" class="muted small" style="margin-top:4px;">Bot-managed exits remain active in parallel. Native protection is an additional safety layer; it does not replace the bot watcher.</div>
+          </div>
+          <h3 class="gate-block-heading" id="ltReasonsHeading">Why the live tester is locked</h3>
+          <ul class="gate-reasons" id="ltReasons" data-testid="list-lt-reasons"><li>Loading…</li></ul>
+          <!-- V7 — unmanaged-holding drift alert (heuristic, info-only) -->
+          <div class="cash-warning hidden" id="ltDriftAlert" data-testid="banner-lt-drift"></div>
+
+          <!-- V9 — unattended-mode readiness panel. Populated dynamically
+               from summary().unattended_readiness. Banner phrasing follows
+               the verbatim user spec: "SAFE-ish for unattended tiny test"
+               or "DO NOT LEAVE UNATTENDED". -->
+          <div id="ltUnattendedPanel" class="banner hidden" data-testid="panel-unattended-readiness" style="border-left:3px solid var(--warn);background:rgba(245,158,11,0.05);margin-top:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+              <strong id="ltUnattendedBanner">DO NOT LEAVE UNATTENDED</strong>
+              <span class="muted small" id="ltUnattendedTimer">—</span>
+            </div>
+            <div class="muted small" id="ltUnattendedNote" style="margin-top:4px;">Risk-reduced tiny live test envelope. This is not safe automation.</div>
+            <ul id="ltUnattendedChecks" class="gate-reasons" data-testid="list-unattended-checks" style="margin-top:6px;"></ul>
+          </div>
+
+          <h3 class="v7-sub">Open live positions — protective exits managed by THIS bot</h3>
+          <div id="ltPositions" class="positions" data-testid="list-lt-positions">
+            <div class="empty">No live tester positions.</div>
+          </div>
+          <h3 class="v7-sub">Last live order</h3>
+          <div class="v7-box" id="ltLastOrder" data-testid="box-lt-last-order">
+            <div class="empty">No live order attempts yet this session.</div>
+          </div>
+
+          <div class="v7-prot-warn v7-prot-warn-strong" data-testid="warn-lt-okx-blanks">
+            <strong>About blank TP / SL on OKX:</strong>
+            this build uses <em>bot-managed</em> protective exits. The buy order is sent to OKX
+            as a plain market buy, and the bot then watches every price tick and submits the
+            sell when SL / TP / trail is hit. That means <strong>OKX order history will show
+            TP and SL as blank</strong> on the original buy — this is expected, not a bug.
+            The protective exits will appear in OKX history only when the bot actually fires them.
+            <strong>If the bot stops while a live position is open, your stop is no longer being watched.</strong>
+            <strong>V9:</strong> Native exchange-attached TP / SL (algo orders) is implemented and runs alongside bot-managed exits when <code>LIVE_NATIVE_PROTECTION_ENABLED=true</code>. Even with native on, you should still keep this app running for trailing stops and event logging.
+            <br/><strong>V9.1 hotfix:</strong> live sells now use a <em>sellable</em> quantity that subtracts any base-asset fee OKX deducted on the buy fill, and the sell qty is clamped to the smaller of journal sellable vs OKX free balance, rounded down to <code>lotSz</code>. If the clamped qty falls below <code>minSz</code>, the bot refuses the sell and latches the kill switch with a clear reason instead of looping on rejections. Existing positions are clamped to OKX inventory on refresh/startup; the kill switch is <strong>never auto-released</strong>.
+          </div>
+
+          <div class="gate-actions">
+            <button id="ltKillBtn" class="btn btn-ghost" data-testid="button-lt-kill">Engage kill switch</button>
+            <button id="ltReleaseBtn" class="btn btn-ghost" data-testid="button-lt-release">Release kill switch</button>
+            <button id="ltRefreshBtn" class="btn btn-ghost" data-testid="button-lt-refresh">Refresh tester state</button>
+          </div>
+          <!-- V9 — recent event log (placed/triggered/cancelled, kill switch, unattended). -->
+          <h3 class="v7-sub">Recent events</h3>
+          <div id="ltEvents" class="v7-box" data-testid="box-lt-events">
+            <div class="empty">No events recorded yet.</div>
+          </div>
+
+          <p class="v7-note" data-testid="note-lt-no-guarantee">
+            <strong>Note.</strong> The live tester is not guaranteed to trade immediately.
+            It only fires when <em>armed</em> + a <em>qualified signal</em> + every risk
+            check (caps, balance, freshness, spread, cooldown) all pass.
+          </p>
+        </section>
+
+        <!-- V7 — Scanner activity panel -->
+        <section class="card card-wide v7-card" id="scannerActivityCard" data-testid="card-scanner-activity">
+          <div class="card-title-row">
+            <h2>Scanner activity</h2>
+            <span class="chip" id="scanTotal">0 scans</span>
+          </div>
+          <div class="v7-no-trade hidden" id="scanNoTradeSummary"></div>
+          <div class="v7-grid-2col">
+            <div>
+              <h3 class="v7-sub">Core universe</h3>
+              <div class="v7-symset" id="scanCoreList">—</div>
+              <h3 class="v7-sub">Discovered (dynamic)</h3>
+              <div class="v7-symset" id="scanDiscoveredList">—</div>
+            </div>
+            <div>
+              <h3 class="v7-sub">Last qualified signal considered</h3>
+              <div class="v7-box" id="scanQualifiedSignal">
+                <div class="empty">No qualified signal yet this session.</div>
+              </div>
+              <h3 class="v7-sub">Last live tester attempt</h3>
+              <div class="v7-box" id="scanLastLiveAttempt">
+                <div class="empty">No live tester order attempts yet this session.</div>
+              </div>
+            </div>
+          </div>
+          <h3 class="v7-sub">Top candidates this scan</h3>
+          <div class="v7-box v7-box-flush" id="scanCandidates">
+            <div class="empty">No ranked candidates this scan.</div>
+          </div>
+          <h3 class="v7-sub">Skipped symbols (and why)</h3>
+          <div class="v7-box" id="scanSkipped">
+            <div class="empty">No symbols skipped this scan.</div>
+          </div>
+        </section>
+
+        <!-- V7 — Why no live trade? panel -->
+        <section class="card card-wide v7-card" id="whyNoTradeCard" data-testid="card-why-no-trade">
+          <div class="card-title-row">
+            <h2>Why no live trade?</h2>
+            <span class="chip" title="This panel groups the gates the bot must pass before a live order is even attempted.">8 categories</span>
+          </div>
+          <p class="v7-note">
+            Three distinct paths: <strong>paper bot</strong> (always running),
+            <strong>tiny live tester</strong> (small real-money sanity checks within caps),
+            and <strong>full live</strong> (unlocked only with env tokens + training journal).
+            Green dots = the category is currently <em>not</em> blocking; red dots = it is.
+          </p>
+          <div class="v7-blockers" id="blockerList"></div>
+        </section>
+
+        <!-- V7 — Market data source panel -->
+        <section class="card card-wide v7-card" id="marketDataSourceCard" data-testid="card-market-data-source">
+          <div class="card-title-row">
+            <h2>Market data source</h2>
+            <span class="chip chip-ok">OKX public</span>
+          </div>
+          <p class="v7-note">
+            All scan/quote/candle data comes from the OKX public API — no key required.
+            CoinGecko / CoinMarketCap can optionally enrich the universe (e.g. trending
+            tags) but are <strong>not</strong> required for fills. Offline-first by design.
+          </p>
+          <div class="v7-grid-2col">
+            <div>
+              <div class="v7-kv"><span>Provider</span><strong id="miProvider">none</strong></div>
+              <div class="v7-kv"><span>Available</span><strong>none, coingecko</strong></div>
+              <div class="v7-kv"><span>Set via</span><strong>MARKET_INTEL_PROVIDER env</strong></div>
+            </div>
+            <div>
+              <div class="v7-kv"><span>Note</span><span class="muted" id="miNote">OKX public is enough.</span></div>
+              <div class="v7-kv"><span>Direction</span><span class="side-badge side-long">LONG (spot buy only)</span></div>
+              <div class="v7-kv"><span>Shorts/Perps/Leverage</span><span class="muted">unavailable in this build</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card card-wide" id="hermesCard">
+          <div class="card-title-row">
+            <h2>Hermes learning mode</h2>
+            <button id="resetHermesBtn" class="btn btn-ghost">Reset Hermes journal</button>
+          </div>
+          <div class="hermes-goal" id="hermesGoal">Learning goal loading…</div>
+          <div class="hermes-grid">
+            <div class="hermes-kpi"><span>Data quality</span><strong id="hermesDataQuality">—</strong><em id="hermesDataRule">Waiting for live OKX validation.</em></div>
+            <div class="hermes-kpi"><span>Closed paper trades</span><strong id="hermesClosed">0</strong><em id="hermesSample">Need 10+ trades before trusting recommendations.</em></div>
+            <div class="hermes-kpi"><span>Win rate</span><strong id="hermesWinRate">—</strong><em id="hermesPnl">P/L —</em></div>
+          </div>
+          <div class="hermes-columns">
+            <div>
+              <h3>Best model calls</h3>
+              <div id="hermesModels" class="score-list"><div class="empty">No graded trades yet.</div></div>
+            </div>
+            <div>
+              <h3>Best strategies</h3>
+              <div id="hermesStrategies" class="score-list"><div class="empty">No graded trades yet.</div></div>
+            </div>
+            <div>
+              <h3>Latest lessons</h3>
+              <div id="hermesLessons" class="lesson-list"><div class="empty">Hermes will write lessons after trades close.</div></div>
+            </div>
+          </div>
+          <div class="hermes-reco" id="hermesReco">Collecting evidence…</div>
+        </section>
+
+        <!-- BOTTOM: trade log + event console -->
+        <section class="card card-wide" id="tradesCard">
+          <h2>Trade log</h2>
+          <table class="trade-table">
+            <thead>
+              <tr>
+                <th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th>
+                <th>P/L</th><th>Fees</th><th>Reason</th><th>Closed</th>
+              </tr>
+            </thead>
+            <tbody id="tradesBody">
+              <tr><td colspan="9" class="empty">No closed trades yet.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="card card-wide" id="consoleCard">
+          <h2>Event console</h2>
+          <pre id="console" class="console"></pre>
+        </section>
+      </main>
+
+      <!-- Settings drawer -->
+      <div class="drawer" id="drawer" aria-hidden="true">
+        <div class="drawer-panel">
+          <div class="drawer-head">
+            <h2>Settings</h2>
+            <button id="closeDrawer" class="btn btn-ghost">Close</button>
+          </div>
+          <div class="drawer-body">
+            <div class="field-row">
+              <label>Starting balance (USDT)</label>
+              <input type="number" id="set-starting_balance_usdt" min="100" step="100" />
+            </div>
+            <div class="field-row">
+              <label>Risk per trade (%)</label>
+              <input type="number" id="set-risk_per_trade_pct" step="0.1" />
+            </div>
+            <div class="field-row">
+              <label>Max position size (% of equity)</label>
+              <input type="number" id="set-max_position_pct" step="1" />
+            </div>
+            <div class="field-row">
+              <label>Stop loss (%)</label>
+              <input type="number" id="set-stop_loss_pct" step="0.1" />
+            </div>
+            <div class="field-row">
+              <label>Take profit (%)</label>
+              <input type="number" id="set-take_profit_pct" step="0.1" />
+            </div>
+            <div class="field-row">
+              <label>Trailing stop (%)</label>
+              <input type="number" id="set-trailing_stop_pct" step="0.1" />
+            </div>
+            <div class="field-row">
+              <label>Daily loss cap (%)</label>
+              <input type="number" id="set-daily_loss_cap_pct" step="0.1" />
+            </div>
+            <div class="field-row">
+              <label>Max trades / day</label>
+              <input type="number" id="set-max_trades_per_day" step="1" />
+            </div>
+            <div class="field-row">
+              <label>Max open positions</label>
+              <input type="number" id="set-max_open_positions" step="1" min="1" max="5" />
+            </div>
+            <div class="field-row">
+              <label>Fee (%)</label>
+              <input type="number" id="set-fee_pct" step="0.01" />
+            </div>
+            <div class="field-row">
+              <label>Slippage (%)</label>
+              <input type="number" id="set-slippage_pct" step="0.01" />
+            </div>
+            <div class="field-row">
+              <label>Confidence threshold</label>
+              <input type="number" id="set-confidence_threshold" step="0.05" min="0" max="1" />
+            </div>
+            <div class="field-row">
+              <label>Setup timeframe</label>
+              <select id="set-timeframe">
+                <option value="1m">1m</option>
+                <option value="3m">3m</option>
+                <option value="5m">5m</option>
+                <option value="15m">15m</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Higher-timeframe bias</label>
+              <select id="set-bias_timeframe">
+                <option value="15m">15m</option>
+                <option value="30m">30m</option>
+                <option value="1h">1h</option>
+                <option value="4h">4h</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Fast price watcher (seconds)</label>
+              <input type="number" id="set-price_refresh_seconds" step="1" min="1" max="10" />
+            </div>
+            <div class="field-row">
+              <label>Market scan speed (seconds)</label>
+              <input type="number" id="set-scan_interval_seconds" step="1" min="3" max="60" />
+            </div>
+            <div class="field-row">
+              <label>AI timeout per brain (seconds)</label>
+              <input type="number" id="set-ai_timeout_seconds" step="0.5" min="3" max="20" />
+            </div>
+            <div class="field-row">
+              <label>AI reply size (tokens)</label>
+              <input type="number" id="set-ai_max_tokens" step="10" min="80" max="260" />
+            </div>
+            <div class="field-row">
+              <label>Active strategy</label>
+              <select id="set-active_strategy">
+                <option value="commander_blend">Commander Blend</option>
+                <option value="trend_rider">Trend Rider</option>
+                <option value="pullback_sniper">Pullback Sniper</option>
+                <option value="breakout_hunter">Breakout Hunter</option>
+                <option value="mean_reversion">Mean Reversion</option>
+                <option value="volume_surge">Volume Surge</option>
+                <option value="safe_observer">Safe Observer</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Indicator-only mode (if AI offline)</label>
+              <select id="set-indicator_only_mode">
+                <option value="false">disabled (safer)</option>
+                <option value="true">enabled</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Ride winners after TP</label>
+              <select id="set-ride_winners_enabled">
+                <option value="true">enabled</option>
+                <option value="false">close at TP</option>
+              </select>
+            </div>
+            <h3 class="section-title">Execution mode & gate</h3>
+            <div class="field-row">
+              <label>Execution mode</label>
+              <select id="set-execution_mode" data-testid="select-execution-mode">
+                <option value="paper">paper (safe default)</option>
+                <option value="okx_demo">okx_demo (after gate passes)</option>
+                <option value="okx_live">okx_live (real money — needs env acks)</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Min closed paper trades</label>
+              <input type="number" id="set-live_min_closed_trades" step="1" min="10" max="2000" />
+            </div>
+            <div class="field-row">
+              <label>Min paper win rate (0–1)</label>
+              <input type="number" id="set-live_min_win_rate" step="0.05" min="0" max="0.95" />
+            </div>
+            <div class="field-row">
+              <label>Min net P/L (USDT)</label>
+              <input type="number" id="set-live_min_total_pnl_usdt" step="1" />
+            </div>
+            <div class="field-row">
+              <label>Min data quality score</label>
+              <input type="number" id="set-live_min_data_quality_score" step="1" min="50" max="100" />
+            </div>
+            <div class="field-row">
+              <label>Max OKX order size (USDT)</label>
+              <input type="number" id="set-live_max_order_usdt" step="1" min="1" max="50" />
+            </div>
+
+            <h3 class="section-title">Leverage simulator (paper/demo only)</h3>
+            <div class="field-row">
+              <label>Leverage enabled</label>
+              <select id="set-leverage_enabled">
+                <option value="false">off (safe)</option>
+                <option value="true">on (simulator only)</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Leverage multiplier</label>
+              <input type="number" id="set-leverage_multiplier" step="0.5" min="1" max="10" />
+            </div>
+            <div class="field-row">
+              <label>Leverage cap (UI max)</label>
+              <input type="number" id="set-leverage_max_multiplier" step="1" min="1" max="10" />
+            </div>
+            <div class="field-row">
+              <label>Liquidation buffer (% of margin)</label>
+              <input type="number" id="set-leverage_liquidation_buffer_pct" step="5" min="40" max="95" />
+            </div>
+            <div class="field-row">
+              <label>Daily loss cap when leveraged (%)</label>
+              <input type="number" id="set-leverage_max_daily_loss_pct" step="0.5" min="0.5" max="10" />
+            </div>
+            <div class="field-row">
+              <label>Extra closed trades required when leveraged</label>
+              <input type="number" id="set-leverage_extra_min_closed_trades" step="5" min="20" max="2000" />
+            </div>
+            <p class="hint">Real OKX leverage / perps are <strong>not wired</strong> in this build. The simulator amplifies paper P/L and fees so you can stress-test before requesting a perps adapter.</p>
+
+            <h3 class="section-title">V5.1 — Active paper training</h3>
+            <p class="hint">These features only affect <strong>paper mode</strong>. They never relax demo/live safety gates and never place real orders.</p>
+            <div class="field-row field-row-emph">
+              <label><strong>Auto Strategy Selection</strong><br/><span class="hint inline-hint">Hermes auto-picks best strategy per scan</span></label>
+              <select id="set-auto_strategy_selection" data-testid="select-auto-strategy-selection">
+                <option value="true">ON — Hermes picks best per scan</option>
+                <option value="false">OFF — use Active strategy above</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Active paper training</label>
+              <select id="set-active_paper_training">
+                <option value="true">enabled — take more paper trades to learn</option>
+                <option value="false">disabled — only high-confidence trades</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Paper training min score (0–1)</label>
+              <input type="number" id="set-paper_training_min_score" step="0.01" min="0.20" max="0.95" />
+            </div>
+            <div class="field-row">
+              <label>Allow exploratory paper trades</label>
+              <select id="set-paper_training_allow_exploration">
+                <option value="true">yes — try setups below normal confidence</option>
+                <option value="false">no</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Training position size (% of normal)</label>
+              <input type="number" id="set-paper_training_size_pct" step="5" min="10" max="100" />
+            </div>
+            <div class="field-row">
+              <label>Max training trades / day</label>
+              <input type="number" id="set-paper_training_max_daily_trades" step="1" min="1" max="100" />
+            </div>
+
+            <h3 class="section-title">V5.1 — Dynamic symbol discovery</h3>
+            <div class="field-row">
+              <label>Dynamic symbol discovery</label>
+              <select id="set-dynamic_symbol_discovery">
+                <option value="true">enabled — scan OKX top liquid USDT pairs</option>
+                <option value="false">disabled — only core symbols</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Max discovered symbols</label>
+              <input type="number" id="set-max_dynamic_symbols" step="1" min="0" max="100" />
+            </div>
+            <div class="field-row">
+              <label>Min 24h quote volume (USDT)</label>
+              <input type="number" id="set-dynamic_min_quote_volume_usdt" step="100000" min="10000" />
+            </div>
+            <p class="hint">Symbols pulled live from <code>/api/v5/market/tickers</code>. Liquidity (volume) and spread filters protect against illiquid junk. Discovery only widens <strong>paper</strong> scanning.</p>
+
+            <h3 class="section-title">V7 — Scanner ceiling + market intel</h3>
+            <div class="field-row">
+              <label>Max scan symbols (core + discovered)</label>
+              <input type="number" id="set-max_scan_symbols" step="1" min="8" max="80" />
+            </div>
+            <div class="field-row">
+              <label>Market intel provider</label>
+              <select id="set-market_intel_provider">
+                <option value="none">none (OKX public only — recommended)</option>
+                <option value="coingecko">coingecko (optional enrichment, no key needed)</option>
+              </select>
+            </div>
+            <p class="hint">OKX public ticker data is sufficient for fills. CoinGecko is optional enrichment only. Default ceiling of 25 covers the 8 core symbols + ~17 dynamically discovered top liquid USDT pairs.</p>
+
+            <h3 class="section-title">V5.1 — Paper learning samples</h3>
+            <div class="field-row">
+              <label>Learning sample fallback</label>
+              <select id="set-learning_sample_enabled">
+                <option value="true">enabled — take tiny exploratory trades</option>
+                <option value="false">disabled</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Learning sample min score (0–1)</label>
+              <input type="number" id="set-learning_sample_min_score" step="0.01" min="0.15" max="0.80" />
+            </div>
+            <div class="field-row">
+              <label>Learning sample size (% of normal)</label>
+              <input type="number" id="set-learning_sample_size_pct" step="5" min="10" max="100" />
+            </div>
+            <div class="field-row">
+              <label>Max learning samples / day</label>
+              <input type="number" id="set-learning_sample_max_per_day" step="1" min="1" max="50" />
+            </div>
+            <p class="hint"><strong>Paper-only.</strong> Learning samples are labelled <em>“PAPER LEARNING SAMPLE — not live-ready signal”</em>. They never execute on OKX demo/live, regardless of gate status, and use half-to-third the normal risk.</p>
+
+            <h3 class="section-title">V5.4 — Realistic paper mode</h3>
+            <p class="hint">Conservative defaults that prevent overactive/unrealistic paper results from being treated as live-ready. Live execution stays disabled regardless.</p>
+            <div class="field-row field-row-emph">
+              <label><strong>Paper profile</strong><br/><span class="hint inline-hint">live_readiness = strict + counts toward gate</span></label>
+              <select id="set-paper_profile" data-testid="select-paper-profile">
+                <option value="live_readiness">live_readiness — conservative; eligible for gate</option>
+                <option value="learning">learning — looser; NOT eligible for gate</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Min cash reserve (% of equity)</label>
+              <input type="number" id="set-min_cash_reserve_pct" step="5" min="0" max="80" />
+            </div>
+            <div class="field-row">
+              <label>Max capital in positions (% of equity)</label>
+              <input type="number" id="set-max_capital_in_positions_pct" step="5" min="5" max="100" />
+            </div>
+            <div class="field-row">
+              <label>Global cooldown between entries (seconds)</label>
+              <input type="number" id="set-global_trade_cooldown_seconds" step="30" min="0" max="7200" />
+            </div>
+            <div class="field-row">
+              <label>Per-symbol cooldown (seconds)</label>
+              <input type="number" id="set-per_symbol_cooldown_seconds" step="60" min="0" max="86400" />
+            </div>
+            <div class="field-row">
+              <label>Realistic fills (bid/ask + fees)</label>
+              <select id="set-realistic_fills_enabled">
+                <option value="true">enabled (recommended)</option>
+                <option value="false">disabled</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Exit verification (no impossible TP/SL)</label>
+              <select id="set-exit_verification_enabled">
+                <option value="true">enabled — require live ticker / candle proof</option>
+                <option value="false">disabled — trust trigger price (NOT recommended)</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Symbol-adaptive intelligence</label>
+              <select id="set-symbol_adaptive_enabled">
+                <option value="true">enabled — ATR/spread/volume adapts SL/TP/size</option>
+                <option value="false">disabled — flat parameters per coin</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Min ATR % (below = dead/pegged, blocked)</label>
+              <input type="number" id="set-symbol_min_atr_pct" step="0.01" min="0" max="2" />
+            </div>
+            <div class="field-row">
+              <label>Max ATR % (above = ungovernable, blocked)</label>
+              <input type="number" id="set-symbol_max_atr_pct" step="0.1" min="0.5" max="30" />
+            </div>
+            <div class="field-row">
+              <label>Max spread % (above = blocked)</label>
+              <input type="number" id="set-symbol_max_spread_pct" step="0.01" min="0.01" max="5" />
+            </div>
+            <div class="field-row">
+              <label>Min 24h turnover (USDT)</label>
+              <input type="number" id="set-symbol_min_quote_vol_usdt" step="100000" min="1000" />
+            </div>
+            <div class="field-row">
+              <label>Paper excluded bases (CSV)<br/><span class="hint inline-hint">USDG, USDC, RLUSD, PAXG, XAUT, BETH, STETH, WBTC, WETH…</span></label>
+              <input type="text" id="set-paper_excluded_bases" placeholder="USDG,USDC,RLUSD,PAXG,XAUT" />
+            </div>
+            <p class="hint"><strong>Paper-only realism.</strong> Stable/pegged/synthetic pairs are blocked even if discovery finds them. Exits require live ticker bid/ask or fresh candle high/low to prove the price was actually reached — trades that fail verification are flagged and excluded from the live-readiness gate.</p>
+
+            <h3 class="section-title">Tiny OKX live tester (V9.1)</h3>
+            <div class="field-row">
+              <label>Live tester enabled<br/><span class="hint inline-hint">Master switch. Also requires <code>LIVE_TESTER_ENABLED=true</code> and OKX keys.</span></label>
+              <select id="set-live_tester_enabled" data-testid="select-live-tester-enabled">
+                <option value="false">false</option>
+                <option value="true">true</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Max order USDT (tester)<br/><span class="hint inline-hint">Clamped to $1–$25. Real money per trade.</span></label>
+              <input type="number" id="set-live_max_order_usdt_tester" step="0.5" min="1" max="25" data-testid="input-live-max-order-tester" />
+            </div>
+            <div class="field-row">
+              <label>Daily loss cap USDT</label>
+              <input type="number" id="set-live_daily_loss_cap_usdt" step="0.5" min="0.5" max="25" />
+            </div>
+            <div class="field-row">
+              <label>Max live trades/day</label>
+              <input type="number" id="set-live_max_trades_per_day" step="1" min="1" max="10" />
+            </div>
+            <div class="field-row">
+              <label>One position per symbol</label>
+              <select id="set-live_one_position_per_symbol">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Max open live positions</label>
+              <input type="number" id="set-live_max_open_positions" step="1" min="1" max="3" />
+            </div>
+            <div class="field-row">
+              <label>Require protective exit (SL/TP/trail)</label>
+              <select id="set-live_require_protective_exit">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Spot only</label>
+              <select id="set-live_spot_only">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Free reserve multiplier<br/><span class="hint inline-hint">Require free USDT &ge; order_usdt &times; this. Defaults to 1.10.</span></label>
+              <input type="number" id="set-live_free_reserve_multiplier" step="0.05" min="1.0" max="2.0" />
+            </div>
+            <p class="hint"><strong>Real money. Bot-managed stops only.</strong> The app must stay running for SL/TP/trail to fire. Withdrawals and transfers are never used. Use the OKX panel above to confirm balance and key permissions before enabling.</p>
+
+            <h3 class="section-title">AI models</h3>
+            <div class="field-row"><label>Commander</label><input type="text" id="set-commander_model" /></div>
+            <div class="field-row"><label>Scout</label><input type="text" id="set-scout_model" /></div>
+            <div class="field-row"><label>Risk</label><input type="text" id="set-risk_model" /></div>
+            <div class="field-row"><label>Skeptic</label><input type="text" id="set-skeptic_model" /></div>
+            <div class="drawer-actions">
+              <button id="saveSettings" class="btn btn-primary">Save settings</button>
+            </div>
+            <p class="hint">Settings persist to <code>data/settings.json</code>. Reset paper account also re-uses the starting balance set here.</p>
+          </div>
+        </div>
+        <div class="drawer-scrim" id="drawerScrim"></div>
+      </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
