@@ -2,6 +2,9 @@
 (() => {
   const $ = (id) => document.getElementById(id);
 
+  // --- configurable API base (set via window.API_BASE) ---
+  const API_BASE = window.API_BASE || '';
+
   // --- helpers ---
   const fmtMoney = (n) => {
     if (n === undefined || n === null || Number.isNaN(n)) return "$—";
@@ -13,7 +16,7 @@
   const fmtNum = (n, d = 4) => (n === undefined || n === null || Number.isNaN(n)) ? "—" : Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 
   async function api(path, opts = {}) {
-    const r = await fetch(path, {
+    const r = await fetch(API_BASE + path, {
       headers: { "Content-Type": "application/json" },
       ...opts,
     });
@@ -1480,7 +1483,7 @@
 
   // --- SSE wiring ---
   function connectSSE() {
-    const es = new EventSource("/api/stream");
+    const es = new EventSource(API_BASE + "/api/stream");
     const types = ["ready", "task", "portfolio", "tickers", "snapshots", "opportunities", "ai_verdict",
                    "position_opened", "position_closed", "entry_blocked", "bot_started",
                    "bot_stopped", "paper_reset", "position_managed", "settings_updated", "market_status",
@@ -1884,5 +1887,11 @@
       $("currentTask").textContent = "boot error: " + e.message;
     }
     connectSSE();
+    // Polling fallbacks for when SSE is unavailable (e.g. Vercel)
+    setInterval(refreshHealth, 30000);
+    setInterval(refreshPortfolio, 10000);
+    setInterval(refreshTrades, 30000);
+    setInterval(refreshHermes, 60000);
+    setInterval(refreshReadiness, 30000);
   })();
 })();

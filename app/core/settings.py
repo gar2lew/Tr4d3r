@@ -15,12 +15,16 @@ except Exception:
     pass
 
 
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+_VERCEL = os.getenv("VERCEL", "").strip().lower() == "true"
+
+DATA_DIR = Path(os.getenv("DATA_DIR", "/tmp/data" if _VERCEL else "/data"))
 if not DATA_DIR.exists():
-    # Fallback to local ./data when not running in container
-    fallback = Path(__file__).resolve().parents[2] / "data"
-    fallback.mkdir(parents=True, exist_ok=True)
-    DATA_DIR = fallback
+    if _VERCEL:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+    else:
+        fallback = Path(__file__).resolve().parents[2] / "data"
+        fallback.mkdir(parents=True, exist_ok=True)
+        DATA_DIR = fallback
 
 SETTINGS_FILE = DATA_DIR / "settings.json"
 

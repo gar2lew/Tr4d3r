@@ -1,0 +1,12 @@
+{
+  "outputDirectory": "web",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/static/(.*)", "destination": "/$1" }
+  ]
+}

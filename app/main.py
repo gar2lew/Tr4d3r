@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.events import bus
 from app.core.settings import (
+    _VERCEL,
     EnvFlags,
     RuntimeSettings,
     get_settings,
@@ -64,6 +65,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def _startup() -> None:
+    if _VERCEL:
+        return
     # Warm-up: fetch tickers once
     s = get_settings()
     try:
@@ -87,6 +90,8 @@ async def _startup() -> None:
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
+    if _VERCEL:
+        return
     await strategy.stop()
     await market.close()
     await brain.close()
@@ -790,7 +795,7 @@ async def stream(request: Request) -> StreamingResponse:
 
 # ----------------- Static frontend -----------------
 
-if WEB_DIR.exists():
+if WEB_DIR.exists() and not _VERCEL:
     app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
 
